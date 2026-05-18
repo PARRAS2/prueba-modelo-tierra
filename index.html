@@ -82,7 +82,7 @@
         let isVR = false;
         let activeGamepad = null;
 
-        // Limites de Zoom
+        // Límites estrictos de Zoom para la cámara
         const ZOOM_MIN = 3.0;
         const ZOOM_MAX = 8.5;
 
@@ -92,10 +92,14 @@
         };
 
         const canvasW = 2048, canvasH = 2048;
+        
+        // Configuración del cargador con soporte de origen cruzado (CORS) para servidores cartográficos
         const textureLoader = new THREE.TextureLoader();
+        textureLoader.setCrossOrigin('anonymous');
+        
         const loadedImages = {};
 
-        // ==================== FUNCIONES ====================
+        // ==================== INICIALIZACIÓN MUNDO 3D ====================
         function init() {
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -109,18 +113,33 @@
             effect = new THREE.StereoEffect(renderer);
             effect.setSize(window.innerWidth, window.innerHeight);
 
-            // Luces estables
+            // Iluminación orbital balanceada
             scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-            const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
-            dirLight.position.set(5, 3, 5);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.75);
+            dirLight.position.set(5, 4, 6);
             scene.add(dirLight);
 
-            // Tierra y Nubes Avanzadas
+            // --- MÉTODO 2: CARGA DIRECTA DE TEXTURA SATELITAL ESTILO CESIUM ---
             const geometry = new THREE.SphereGeometry(1.2, 64, 64);
-            const earthTexture = textureLoader.load('textures/8k_earth_daymap.jpg');
-            earth = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({ map: earthTexture, shininess: 15 }));
+            
+            // Usamos una textura cartográfica satelital global de alta calidad optimizada para envoltura esférica UV
+            const cesiumSatelliteTex = textureLoader.load(
+                'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Earthmap1000x500compac.jpg/1024px-Earthmap1000x500compac.jpg',
+                function (texture) {
+                    texture.wrapS = THREE.RepeatWrapping;
+                    texture.wrapT = THREE.ClampToEdgeWrapping;
+                    texture.minFilter = THREE.LinearMipmapLinearFilter;
+                }
+            );
+
+            earth = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({ 
+                map: cesiumSatelliteTex, 
+                shininess: 12,
+                bumpScale: 0.02
+            }));
             scene.add(earth);
 
+            // Capa atmosférica de nubes translúcidas
             const cloudsGeo = new THREE.SphereGeometry(1.215, 64, 64);
             const cloudsTex = textureLoader.load('textures/8k_earth_clouds.jpg');
             clouds = new THREE.Mesh(cloudsGeo, new THREE.MeshPhongMaterial({ 
@@ -128,7 +147,7 @@
             }));
             scene.add(clouds);
 
-            // SISTEMA DE PARTICULAS (Estrellas Espaciales)
+            // Generador de polvo estelar de fondo
             createStarfield();
             
             setupTextCanvases();
@@ -150,12 +169,11 @@
 
         function createStarfield() {
             starGeometry = new THREE.BufferGeometry();
-            const starCount = 1500;
+            const starCount = 1800;
             const starPositions = new Float32Array(starCount * 3);
 
             for(let i = 0; i < starCount * 3; i += 3) {
-                // Posicionar partículas en una esfera gigante alrededor de la escena
-                const radius = 50 + Math.random() * 30;
+                const radius = 60 + Math.random() * 20;
                 const u = Math.random();
                 const v = Math.random();
                 const theta = u * 2.0 * Math.PI;
@@ -168,12 +186,11 @@
 
             starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
             
-            // Material brillante para las estrellas flotantes
             const starMaterial = new THREE.PointsMaterial({
                 color: 0xffffff,
-                size: 0.25,
+                size: 0.22,
                 transparent: true,
-                opacity: 0.9,
+                opacity: 0.85,
                 blending: THREE.AdditiveBlending
             });
 
@@ -327,18 +344,16 @@
                 clouds.rotation.x += sy * 0.03;
             }
 
-            // === SISTEMA DINÁMICO DE ZOOM CON GATILLOS TRASEROS ===
-            // Mapeo adaptado: L2 (Botón 6) aleja la vista, R2 (Botón 7) acerca la vista progresivamente
-            if (gp.buttons[7] && gp.buttons[7].value > 0.05) { // R2 presionado
-                camera.position.z -= gp.buttons[7].value * 0.08;
+            // === CONTROL DE ZOOM INTEGRADO CON GATILLOS R2 Y L2 ===
+            if (gp.buttons[7] && gp.buttons[7].value > 0.05) { 
+                camera.position.z -= gp.buttons[7].value * 0.08; // Acercar con R2
             }
-            if (gp.buttons[6] && gp.buttons[6].value > 0.05) { // L2 presionado
-                camera.position.z += gp.buttons[6].value * 0.08;
+            if (gp.buttons[6] && gp.buttons[6].value > 0.05) { 
+                camera.position.z += gp.buttons[6].value * 0.08; // Alejar con L2
             }
-            // Asegurar que el usuario no traspase los límites geométricos del espacio UI
             camera.position.z = THREE.MathUtils.clamp(camera.position.z, ZOOM_MIN, ZOOM_MAX);
 
-            // D-Pad Controles de Menú
+            // Navegación D-Pad
             if (gp.buttons[12]?.pressed && !buttonPressedState.dpadUp) { buttonPressedState.dpadUp = true; scrollPaises(-1); }
             else if (!gp.buttons[12]?.pressed) buttonPressedState.dpadUp = false;
 
@@ -379,11 +394,9 @@
                 clouds.rotation.y += 0.0004;
             }
 
-            // Animación sutil de titileo estelar
+            // Rotación del domo estelar
             if (starParticles) {
-                const time = Date.now() * 0.001;
-                starParticles.geometry.attributes.position.needsUpdate = true;
-                starParticles.rotation.y = time * 0.005; // Movimiento imperceptible del cielo
+                starParticles.rotation.y = Date.now() * 0.00003;
             }
 
             handleGamepadInput();
@@ -404,7 +417,7 @@
             effect.setSize(window.innerWidth, window.innerHeight);
         }
 
-        // ==================== INICIO ====================
+        // ==================== ENTRADA AL MUNDO VR ====================
         init();
 
         document.getElementById('permission-btn').addEventListener('click', () => {
@@ -414,11 +427,10 @@
             document.getElementById('reticle-left').style.display = 'block';
             document.getElementById('reticle-right').style.display = 'block';
 
-            // Intentar forzar pantalla completa nativa
             try {
                 const docEl = document.documentElement;
                 if (docEl.requestFullscreen) docEl.requestFullscreen({ navigationUI: "hide" });
-            } catch (e) { console.log(e); }
+            } catch (e) { console.log("Modo pantalla completa no soportado en este navegador."); }
         });
     </script>
 </body>
