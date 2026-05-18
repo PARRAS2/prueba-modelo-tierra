@@ -1,124 +1,73 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="utf-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>VR Earth Experience - Cesium + Organizaciones</title>
-    <script src="https://cdn.jsdelivr.net/npm/cesium@1.141/Build/Cesium/Cesium.js"></script>
-    <link href="https://cdn.jsdelivr.net/npm/cesium@1.141/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
-    
+    <title>VR Earth Spatial Experience - Cesium + Three.js</title>
     <style>
-        body, html { margin: 0; padding: 0; overflow: hidden; background-color: #000; width: 100vw; height: 100vh; color: white; font-family: 'Segoe UI', sans-serif; }
-        
-        /* Contenedor VR Pantalla Dividida (Fondo) */
-        #vrWrapper { display: flex; width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
-        .vrEye { width: 50vw; height: 100vh; position: relative; overflow: hidden; }
-        .cesiumContainer { width: 100%; height: 100%; }
-
-        /* Capa de Interfaz de Usuario VR (Flotante en frente) */
-        #uiWrapper { 
-            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; 
-            z-index: 10; pointer-events: none; display: flex; 
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+            background-color: #000; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            position: relative;
         }
-        .uiEye { 
-            width: 50vw; height: 100vh; position: relative; 
-            display: flex; flex-direction: column; justify-content: space-between; align-items: center;
-            box-sizing: border-box; padding: 40px 60px;
-        }
-
-        /* Paneles de Contenido Estilo Holograma */
-        .panels-container { display: flex; width: 100%; justify-content: space-between; margin-top: 20px; }
-        .panel { 
-            width: 45%; height: 60vh; background: rgba(6, 10, 22, 0.85); 
-            border: 4px solid rgba(0, 123, 255, 0.8); border-radius: 12px; 
-            padding: 20px; box-sizing: border-box; backdrop-filter: blur(4px);
-            overflow: hidden;
-        }
-        .panel h2 { color: #00a2ff; margin-top: 0; font-size: 24px; border-bottom: 2px solid rgba(0, 123, 255, 0.4); padding-bottom: 10px; }
-        .panel ul { list-style-type: none; padding: 0; margin: 0; }
-        .panel li { font-size: 18px; margin-bottom: 12px; line-height: 1.4; }
-        
-        .right-content { text-align: center; }
-        .org-logo { width: 90px; height: 90px; border-radius: 8px; margin-bottom: 10px; background: #fff; object-fit: contain;}
-        .org-title { color: #00a2ff; font-size: 28px; font-weight: bold; margin: 5px 0; text-transform: uppercase; }
-
-        /* Selector Inferior Central */
-        .selector-panel { 
-            background: rgba(10, 18, 36, 0.9); border: 3px solid #007bff; 
-            border-radius: 8px; padding: 10px 40px; font-size: 26px; font-weight: bold;
-            margin-bottom: 30px; text-align: center; min-width: 200px;
-        }
-
-        /* Retículas de apuntado VR */
-        .v-reticle {
-            position: absolute; top: 50%; left: 50%; width: 8px; height: 8px; 
-            background-color: rgba(255,255,255,0.8); border-radius: 50%; 
-            transform: translate(-50%, -50%); pointer-events: none; box-shadow: 0 0 6px #00ffcc;
-        }
-
-        /* Botón de Permiso Inicial */
         #permission-btn {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             padding: 15px 40px; font-size: 20px; background-color: #007bff; color: white;
             border: none; border-radius: 8px; cursor: pointer; z-index: 30;
-            box-shadow: 0px 6px 15px rgba(0,123,255,0.6); transition: all 0.3s;
+            box-shadow: 0px 6px 15px rgba(0,123,255,0.6);
+            transition: all 0.3s;
         }
-        #permission-btn:hover { background-color: #0056b3; transform: translate(-50%, -50%) scale(1.05); }
+        #permission-btn:hover {
+            background-color: #0056b3;
+            transform: translate(-50%, -50%) scale(1.05);
+        }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
+        .v-reticle {
+            position: absolute; top: 50%; width: 6px; height: 6px; background-color: rgba(255,255,255,0.8);
+            border-radius: 50%; transform: translate(-50%, -50%); z-index: 20; display: none;
+            pointer-events: none; box-shadow: 0 0 6px #00ffcc;
+        }
+        #reticle-left { left: 25%; }
+        #reticle-right { left: 75%; }
+        #reticle-pc {
+            position: absolute; top: 50%; left: 50%; width: 10px; height: 10px;
+            border: 2px solid #ffffff; border-radius: 50%; transform: translate(-50%, -50%);
+            z-index: 20; pointer-events: none;
+        }
+        /* Contenedor oculto para procesar Cesium en segundo plano */
+        #cesiumHidden { width: 2048px; height: 1048px; position: absolute; top: -9999px; left: -9999px; visibility: hidden; }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/js/effects/StereoEffect.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cesium@1.141/Build/Cesium/Cesium.js"></script>
 </head>
 <body>
-    
+
     <button id="permission-btn">Iniciar Experiencia VR</button>
-
-    <div id="vrWrapper">
-        <div class="vrEye"><div id="cesiumLeft" class="cesiumContainer"></div></div>
-        <div class="vrEye"><div id="cesiumRight" class="cesiumContainer"></div></div>
-    </div>
-
-    <div id="uiWrapper" style="display: none;">
-        <div class="uiEye">
-            <div class="v-reticle"></div>
-            <div class="panels-container">
-                <div class="panel"><h2 id="paisesTitleL">PAÍSES MIEMBROS</h2><ul id="paisesListL"></ul></div>
-                <div class="panel right-content">
-                    <img id="orgLogoL" class="org-logo" src="" alt="">
-                    <div id="orgTitleL" class="org-title"></div>
-                    <p id="orgInfoL" style="font-size: 18px; text-align: left; margin-top: 15px;"></p>
-                </div>
-            </div>
-            <div id="selectorL" class="selector-panel"></div>
-        </div>
-
-        <div class="uiEye">
-            <div class="v-reticle"></div>
-            <div class="panels-container">
-                <div class="panel"><h2 id="paisesTitleR">PAÍSES MIEMBROS</h2><ul id="paisesListR"></ul></div>
-                <div class="panel right-content">
-                    <img id="orgLogoR" class="org-logo" src="" alt="">
-                    <div id="orgTitleR" class="org-title"></div>
-                    <p id="orgInfoR" style="font-size: 18px; text-align: left; margin-top: 15px;"></p>
-                </div>
-            </div>
-            <div id="selectorR" class="selector-panel"></div>
-        </div>
-    </div>
+    <div id="canvas-container"></div>
+    <div id="cesiumHidden"></div>
+    
+    <div id="reticle-pc"></div>
+    <div id="reticle-left" class="v-reticle"></div>
+    <div id="reticle-right" class="v-reticle"></div>
 
     <script>
         // ==================== DATOS DE ORGANIZACIONES ====================
         const orgData = { 
-            "ACNUR": { anio: 1950, imagen: "logos/ACNUR.jpg",
+            "ACNUR": { anio: 1950, imagen: "https://picsum.photos/400/400?random=1",
                 info: ["Misión: Proteger refugiados, desplazados y apátridas.","Brinda ayuda humanitaria: refugio, salud, agua y educación.","Opera en más de 130 países y ha asistido a más de 100 millones de personas."],
-                paises: ["Afganistán","Albania","Alemania","Angola","Argelia","Argentina","Australia","Austria","Bangladesh","Bélgica","Brasil","Canadá","Chile","China","Colombia","Ecuador","España","Estados Unidos","Etiopía","Francia","India","Italia","Japón","Jordania","Kenya","México","Perú","Reino Unido","Rusia","Sudáfrica","Suiza","Turquía","Uganda","Yemen"]
+                paises: ["Afganistán","Albania","Alemania","Angola","Argelia","Argentina","Australia","Austria","Bangladesh","Bélgica","Brasil","Canadá","Chile","China","Colombia","Ecuador","España","Estados Unidos","Etiopía","Francia","India","Italia","Japón","Jordania","Kenya","México","Perü","Reino Unido","Rusia","Sudáfrica","Suiza","Turquía","Uganda","Yemen"]
             },
-            "Banco Mundial": { anio: 1944, imagen: "logos/Banco Mundial.jpg",
+            "Banco Mundial": { anio: 1944, imagen: "https://picsum.photos/400/400?random=2",
                 info: ["Financia proyectos de desarrollo en países de ingresos bajos y medios.","Enfocado en reducción de pobreza, infraestructura y cambio climático.","Ha ayudado a sacar a cientos de millones de personas de la pobreza extrema."],
                 paises: ["Argentina","Bolivia","Brasil","Chile","Colombia","Ecuador","Estados Unidos","México","Perú","Uruguay","Venezuela","Reino Unido","Francia","Alemania","Japón","China","India","Indonesia","Nigeria","Sudáfrica","Etiopía","Kenya","Ghana","Bangladesh","Vietnam","Filipinas"]
             },
-            "Cruz Roja": { anio: 1863, imagen: "logos/Cruz Roja.jpg",
+            "Cruz Roja": { anio: 1863, imagen: "https://picsum.photos/400/400?random=3",
                 info: ["Movimiento humanitario neutral presente en casi todos los países.","Asiste en conflictos armados y desastres naturales.","Promueve el Derecho Internacional Humanitario."],
                 paises: ["Suiza","Francia","Italia","España","Reino Unido","Alemania","Estados Unidos","Canadá","México","Colombia","Brasil","Argentina","Japón","China","Australia","Rusia","India","Turquía","Siria","Sudán","Nigeria","Sudáfrica","Pakistán","Irán"]
             },
-            "UIT": { anio: 1865, imagen: "logos/UIT.jpg",
+            "UIT": { anio: 1865, imagen: "https://picsum.photos/400/400?random=4",
                 info: ["Estándares de telecomunicaciones globales.","Gestión del espectro radioeléctrico.","Conectividad universal."],
                 paises: ["Suiza","Francia","Estados Unidos","Reino Unido","Alemania","España","Italia","Rusia","China","Japón","India","Brasil","México","Argentina","Canadá","Australia","Indonesia","Nigeria","Sudáfrica","Egipto"]
             }
@@ -128,179 +77,300 @@
         let currentSelectedIndex = 0;
         let currentPaisPage = 0;
         let currentInfoPage = 0;
-        const paisesPorPagina = 8; // Reducido ligeramente para encajar limpio en UI HTML de baja altura
+        const paisesPorPagina = 12;
 
-        // --- CONFIGURACIÓN DE CESIUM ---
-        const config = {
-            terrainProvider: new Cesium.EllipsoidTerrainProvider(),
-            skyBox: false, animation: false, timeline: false,
-            fullscreenButton: false, homeButton: false, geocoder: false,
-            baseLayerPicker: false, navigationHelpButton: false, sceneModePicker: false,
-            requestRenderMode: true
-        };
+        let scene, camera, renderer, effect, mouseControls;
+        let earth, uiGroup;
+        let leftPanelMesh, rightPanelMesh, selectorPanelMesh;
+        let leftCanvas, leftCtx, rightCanvas, rightCtx, selectorCanvas, selectorCtx;
+        let leftTexture, rightTexture, selectorTexture, cesiumTexture;
+        let isVR = false, activeGamepad = null;
 
-        const viewerL = new Cesium.Viewer('cesiumLeft', config);
-        const viewerR = new Cesium.Viewer('cesiumRight', config);
+        let targetRotationQuaternion = new THREE.Quaternion();
+        let currentRotationQuaternion = new THREE.Quaternion();
 
-        [viewerL, viewerR].forEach(v => {
-            v.scene.backgroundColor = Cesium.Color.BLACK;
-            v.bottomContainer.style.display = 'none';
-            v.scene.camera.frustum.near = 0.1;
-            const sccc = v.scene.screenSpaceCameraController;
-            sccc.enableRotate = sccc.enableZoom = sccc.enableTranslate = sccc.enableTilt = false;
-        });
+        let buttonPressedState = { square: false, circle: false, dpadUp: false, dpadDown: false, dpadLeft: false, dpadRight: false };
+        const canvasW = 2048, canvasH = 2048;
+        const loadedImages = {};
+        let cesiumViewer, cesiumCanvas;
 
-        let worldQuaternion = Cesium.Quaternion.IDENTITY.clone();
-        let currentZoomDistance = 20000000;
-        const RADIO_TIERRA = 6378137;
+        // ==================== INICIALIZACIÓN DE ENTORNO ====================
+        function init() {
+            // 1. Inicializar Cesium de fondo de forma nativa para extraer el mapa base
+            cesiumViewer = new Cesium.Viewer('cesiumHidden', {
+                terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+                skyBox: false, animation: false, timeline: false, infoBox: false,
+                fullscreenButton: false, homeButton: false, geocoder: false,
+                baseLayerPicker: false, navigationHelpButton: false, sceneModePicker: false
+            });
+            cesiumViewer.scene.backgroundColor = Cesium.Color.BLACK;
+            cesiumViewer.bottomContainer.style.display = 'none';
+            cesiumCanvas = cesiumViewer.scene.canvas;
 
-        function renderScene() {
-            let matrix = Cesium.Matrix3.fromQuaternion(worldQuaternion);
-            let dirBase = Cesium.Matrix3.multiplyByVector(matrix, new Cesium.Cartesian3(0, 0, -1), new Cesium.Cartesian3());
-            let upBase = Cesium.Matrix3.multiplyByVector(matrix, new Cesium.Cartesian3(0, 1, 0), new Cesium.Cartesian3());
+            // 2. Setup Escena Espacial de Three.js
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 0, 5.5);
 
-            let alturaActual = Math.max(1, currentZoomDistance - RADIO_TIERRA);
-            let eyeSeparation = alturaActual * 0.008;
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-            let posL = Cesium.Matrix3.multiplyByVector(matrix, new Cesium.Cartesian3(-eyeSeparation, 0, currentZoomDistance), new Cesium.Cartesian3());
-            viewerL.camera.setView({ destination: posL, orientation: { direction: dirBase, up: upBase } });
+            effect = new THREE.StereoEffect(renderer);
+            effect.setSize(window.innerWidth, window.innerHeight);
 
-            let posR = Cesium.Matrix3.multiplyByVector(matrix, new Cesium.Cartesian3(eyeSeparation, 0, currentZoomDistance), new Cesium.Cartesian3());
-            viewerR.camera.setView({ destination: posR, orientation: { direction: dirBase, up: upBase } });
+            scene.add(new THREE.AmbientLight(0xffffff, 0.8));
 
-            viewerL.scene.requestRender();
-            viewerR.scene.requestRender();
+            // 3. Crear textura dinámica vinculando el Canvas de Cesium a Three.js
+            cesiumTexture = new THREE.CanvasTexture(cesiumCanvas);
+            cesiumTexture.minFilter = THREE.LinearFilter;
+
+            const geometry = new THREE.SphereGeometry(1.4, 64, 64);
+            const material = new THREE.MeshBasicMaterial({ map: cesiumTexture });
+            earth = new THREE.Mesh(geometry, material);
+            scene.add(earth);
+
+            setupTextCanvases();
+            createSpatialUI();
+
+            mouseControls = new THREE.OrbitControls(camera, renderer.domElement);
+            mouseControls.enableDamping = true;
+            mouseControls.dampingFactor = 0.08;
+            mouseControls.minDistance = 3.5;
+            mouseControls.maxDistance = 10;
+
+            window.addEventListener("gamepadconnected", (e) => { activeGamepad = e.gamepad.index; });
+            window.addEventListener("gamepaddisconnected", () => { activeGamepad = null; });
+            window.addEventListener('resize', onWindowResize);
+
+            preloadImagesAndRender();
+            animate();
         }
-        renderScene();
 
-        // ==================== RENDERIZADO DE INTERFAZ EN PANTALLA ====================
-        function actualizarInterfazHTML() {
-            const key = orgKeys[currentSelectedIndex];
+        function setupTextCanvases() {
+            leftCanvas = document.createElement('canvas'); leftCanvas.width = canvasW; leftCanvas.height = canvasH;
+            leftCtx = leftCanvas.getContext('2d');
+            leftTexture = new THREE.CanvasTexture(leftCanvas);
+
+            rightCanvas = document.createElement('canvas'); rightCanvas.width = canvasW; rightCanvas.height = canvasH;
+            rightCtx = rightCanvas.getContext('2d');
+            rightTexture = new THREE.CanvasTexture(rightCanvas);
+
+            selectorCanvas = document.createElement('canvas'); selectorCanvas.width = 1024; selectorCanvas.height = 240;
+            selectorCtx = selectorCanvas.getContext('2d');
+            selectorTexture = new THREE.CanvasTexture(selectorCanvas);
+        }
+
+        function createSpatialUI() {
+            uiGroup = new THREE.Group();
+
+            // Configuración exacta de profundidad (Z), inclinación (Y) y separación tridimensional
+            const panelGeo = new THREE.PlaneGeometry(3.6, 3.6);
+            leftPanelMesh = new THREE.Mesh(panelGeo, new THREE.MeshBasicMaterial({ map: leftTexture, transparent: true, side: THREE.DoubleSide }));
+            leftPanelMesh.position.set(-4.2, 0.2, -0.8);
+            leftPanelMesh.rotation.y = 0.48; // Ángulo holográfico izquierdo
+            uiGroup.add(leftPanelMesh);
+
+            rightPanelMesh = new THREE.Mesh(panelGeo, new THREE.MeshBasicMaterial({ map: rightTexture, transparent: true, side: THREE.DoubleSide }));
+            rightPanelMesh.position.set(4.2, 0.2, -0.8);
+            rightPanelMesh.rotation.y = -0.48; // Ángulo holográfico derecho
+            uiGroup.add(rightPanelMesh);
+
+            selectorPanelMesh = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.9), new THREE.MeshBasicMaterial({ map: selectorTexture, transparent: true, side: THREE.DoubleSide }));
+            selectorPanelMesh.position.set(0, -2.4, -0.2);
+            selectorPanelMesh.rotation.x = -0.3;
+            uiGroup.add(selectorPanelMesh);
+
+            scene.add(uiGroup);
+        }
+
+        function preloadImagesAndRender() {
+            let loaded = 0;
+            orgKeys.forEach(key => {
+                const img = new Image();
+                img.crossOrigin = "anonymous";
+                img.src = orgData[key].imagen;
+                img.onload = () => {
+                    loadedImages[key] = img;
+                    loaded++;
+                    if (loaded === orgKeys.length) renderUIElements(orgKeys[currentSelectedIndex]);
+                };
+                img.onerror = () => {
+                    loaded++;
+                    if (loaded === orgKeys.length) renderUIElements(orgKeys[currentSelectedIndex]);
+                };
+            });
+        }
+
+        function wrapText(ctx, text, x, y, maxW, lineH) {
+            let words = text.split(' '), line = '';
+            for (let w of words) {
+                let test = line + w + ' ';
+                if (ctx.measureText(test).width > maxW && line.length > 0) {
+                    ctx.fillText(line, x, y);
+                    line = w + ' ';
+                    y += lineH;
+                } else line = test;
+            }
+            ctx.fillText(line, x, y);
+        }
+
+        function renderUIElements(key) {
             const data = orgData[key];
             if (!data) return;
 
-            // Procesar Países por página
+            // Panel Izquierdo
+            leftCtx.clearRect(0, 0, canvasW, canvasH);
+            leftCtx.fillStyle = "rgba(6, 10, 22, 0.94)"; leftCtx.fillRect(0, 0, canvasW, canvasH);
+            leftCtx.strokeStyle = "rgba(0, 123, 255, 0.9)"; leftCtx.lineWidth = 26; leftCtx.strokeRect(0, 0, canvasW, canvasH);
+            leftCtx.fillStyle = "#00a2ff"; leftCtx.font = "bold 130px 'Segoe UI'";
+            leftCtx.fillText("PAÍSES MIEMBROS", 100, 180);
+
             const start = currentPaisPage * paisesPorPagina;
-            const listaPaisesHTML = data.paises.slice(start, start + paisesPorPagina)
-                                              .map(p => `<li>• ${p}</li>`).join('');
-
-            // Inyectar en espejo para ambos ojos (Izquierdo y Derecho)
-            document.getElementById('paisesListL').innerHTML = listaPaisesHTML;
-            document.getElementById('paisesListR').innerHTML = listaPaisesHTML;
-
-            // Actualizar Logos e Información general
-            ['L', 'R'].forEach(eye => {
-                document.getElementById(`orgLogo${eye}`).src = data.imagen;
-                document.getElementById(`orgTitle${eye}`).innerText = key;
-                document.getElementById(`orgInfo${eye}`).innerText = data.info[currentInfoPage];
-                document.getElementById(`selector${eye}`).innerText = key;
+            leftCtx.fillStyle = "#ffffff"; leftCtx.font = "bold 95px 'Segoe UI'";
+            let y = 420;
+            data.paises.slice(start, start + paisesPorPagina).forEach(p => {
+                leftCtx.fillText(`• ${p}`, 120, y);
+                y += 135;
             });
+            leftTexture.needsUpdate = true;
+
+            // Panel Derecho
+            rightCtx.clearRect(0, 0, canvasW, canvasH);
+            rightCtx.fillStyle = "rgba(6, 10, 22, 0.94)"; rightCtx.fillRect(0, 0, canvasW, canvasH);
+            rightCtx.strokeStyle = "rgba(0, 123, 255, 0.9)"; rightCtx.lineWidth = 26; rightCtx.strokeRect(0, 0, canvasW, canvasH);
+
+            if (loadedImages[key]) rightCtx.drawImage(loadedImages[key], 824, 80, 400, 400);
+
+            rightCtx.fillStyle = "#00a2ff"; rightCtx.font = "bold 150px 'Segoe UI'"; rightCtx.textAlign = "center";
+            rightCtx.fillText(key.toUpperCase(), 1024, 560);
+
+            rightCtx.strokeStyle = "rgba(0, 123, 255, 0.4)"; rightCtx.lineWidth = 10;
+            rightCtx.beginPath(); rightCtx.moveTo(100, 710); rightCtx.lineTo(1948, 710); rightCtx.stroke();
+
+            rightCtx.fillStyle = "#ffffff"; rightCtx.font = "95px 'Segoe UI'"; rightCtx.textAlign = "left";
+            wrapText(rightCtx, data.info[currentInfoPage], 100, 800, 1840, 135);
+            rightTexture.needsUpdate = true;
+
+            // Selector
+            selectorCtx.clearRect(0, 0, 1024, 240);
+            selectorCtx.fillStyle = "rgba(10, 18, 36, 0.96)"; selectorCtx.fillRect(0, 0, 1024, 240);
+            selectorCtx.strokeStyle = "#007bff"; selectorCtx.lineWidth = 12; selectorCtx.strokeRect(0, 0, 1024, 240);
+            selectorCtx.fillStyle = "#ffffff"; selectorCtx.font = "bold 110px 'Segoe UI'"; selectorCtx.textAlign = "center";
+            selectorCtx.fillText(key, 512, 170);
+            selectorTexture.needsUpdate = true;
         }
 
         function scrollPaises(dir) {
             const total = Math.ceil(orgData[orgKeys[currentSelectedIndex]].paises.length / paisesPorPagina);
             currentPaisPage = (currentPaisPage + dir + total) % total;
-            actualizarInterfazHTML();
+            renderUIElements(orgKeys[currentSelectedIndex]);
         }
 
         function navegarOrganizaciones(dir) {
             currentSelectedIndex = (currentSelectedIndex + dir + orgKeys.length) % orgKeys.length;
             currentPaisPage = 0;
             currentInfoPage = 0;
-            actualizarInterfazHTML();
+            renderUIElements(orgKeys[currentSelectedIndex]);
         }
 
-        // ==================== CONTROLADOR DE MANDOS (GAMEPAD) ====================
-        let gamepadConnected = false;
-        let buttonPressedState = { square: false, circle: false, dpadUp: false, dpadDown: false, dpadLeft: false, dpadRight: false };
+        // ==================== PROCESAMIENTO MATRICIAL DEL MANDO ====================
+        function handleGamepadInput() {
+            if (activeGamepad === null) return;
+            const gp = navigator.getGamepads()[activeGamepad];
+            if (!gp) return;
 
-        function loopMando() {
-            const gamepads = navigator.getGamepads();
-            let gp = null;
-            for(let i=0; i<gamepads.length; i++) { if(gamepads[i]) { gp = gamepads[i]; break; } }
-            
-            if (gp) {
-                gamepadConnected = true;
-                const deadzone = 0.15;
-                const aplicarDeadzone = (v) => Math.abs(v) > deadzone ? v : 0;
+            const deadzone = 0.15;
+            const rotX = Math.abs(gp.axes[0]) > deadzone ? gp.axes[0] : 0;
+            const rotY = Math.abs(gp.axes[1]) > deadzone ? gp.axes[1] : 0;
 
-                // Rotación del Globo de Cesium con Joysticks análogos
-                const rotX = aplicarDeadzone(gp.axes[0]);
-                const rotY = aplicarDeadzone(gp.axes[1]);
-                let alturaActual = Math.max(1, currentZoomDistance - RADIO_TIERRA);
-
-                if (rotX !== 0 || rotY !== 0) {
-                    let factorRotacion = Math.max(0.0001, alturaActual / 20000000) * 0.04;
-                    let rotXQuat = Cesium.Quaternion.fromAxisAngle(Cesium.Cartesian3.UNIT_Y, rotX * factorRotacion);
-                    let rotYQuat = Cesium.Quaternion.fromAxisAngle(Cesium.Cartesian3.UNIT_X, rotY * factorRotacion);
-                    
-                    let tempQuat = Cesium.Quaternion.multiply(worldQuaternion, rotXQuat, new Cesium.Quaternion());
-                    worldQuaternion = Cesium.Quaternion.multiply(tempQuat, rotYQuat, new Cesium.Quaternion());
-                    Cesium.Quaternion.normalize(worldQuaternion, worldQuaternion);
-                }
-
-                // Zoom (Eje derecho)
-                const zoomFactor = aplicarDeadzone(gp.axes[3]);
-                if (zoomFactor !== 0) {
-                    currentZoomDistance += zoomFactor * (alturaActual * 0.07);
-                    if (currentZoomDistance < (RADIO_TIERRA + 0.5)) currentZoomDistance = RADIO_TIERRA + 0.5;
-                }
-
-                if (rotX !== 0 || rotY !== 0 || zoomFactor !== 0) { renderScene(); }
-
-                // --- BOTONES Y CRUCETA (D-PAD) ---
-                if (gp.buttons[12]?.pressed && !buttonPressedState.dpadUp) { buttonPressedState.dpadUp = true; scrollPaises(-1); }
-                else if (!gp.buttons[12]?.pressed) buttonPressedState.dpadUp = false;
-
-                if (gp.buttons[13]?.pressed && !buttonPressedState.dpadDown) { buttonPressedState.dpadDown = true; scrollPaises(1); }
-                else if (!gp.buttons[13]?.pressed) buttonPressedState.dpadDown = false;
-
-                if (gp.buttons[14]?.pressed && !buttonPressedState.dpadLeft) {
-                    buttonPressedState.dpadLeft = true;
-                    const t = orgData[orgKeys[currentSelectedIndex]].info.length;
-                    currentInfoPage = (currentInfoPage - 1 + t) % t;
-                    actualizarInterfazHTML();
-                } else if (!gp.buttons[14]?.pressed) buttonPressedState.dpadLeft = false;
-
-                if (gp.buttons[15]?.pressed && !buttonPressedState.dpadRight) {
-                    buttonPressedState.dpadRight = true;
-                    const t = orgData[orgKeys[currentSelectedIndex]].info.length;
-                    currentInfoPage = (currentInfoPage + 1) % t;
-                    actualizarInterfazHTML();
-                } else if (!gp.buttons[15]?.pressed) buttonPressedState.dpadRight = false;
-
-                // Cambios de Organización (Cuadrado / Círculo)
-                if (gp.buttons[2]?.pressed && !buttonPressedState.square) { buttonPressedState.square = true; navegarOrganizaciones(-1); }
-                else if (!gp.buttons[2]?.pressed) buttonPressedState.square = false;
-
-                if (gp.buttons[1]?.pressed && !buttonPressedState.circle) { buttonPressedState.circle = true; navegarOrganizaciones(1); }
-                else if (!gp.buttons[1]?.pressed) buttonPressedState.circle = false;
+            if (rotX !== 0 || rotY !== 0) {
+                const velocidadRotacion = 0.03;
+                const quatY = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotX * velocidadRotacion);
+                const quatX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), rotY * velocidadRotacion);
+                
+                targetRotationQuaternion.multiplyQuaternions(quatY, targetRotationQuaternion);
+                targetRotationQuaternion.multiplyQuaternions(targetRotationQuaternion, quatX);
             }
-            requestAnimationFrame(loopMando);
+
+            // D-Pad e Interacciones de Botones Libres de Giroscopio
+            if (gp.buttons[12]?.pressed && !buttonPressedState.dpadUp) { buttonPressedState.dpadUp = true; scrollPaises(-1); }
+            else if (!gp.buttons[12]?.pressed) buttonPressedState.dpadUp = false;
+
+            if (gp.buttons[13]?.pressed && !buttonPressedState.dpadDown) { buttonPressedState.dpadDown = true; scrollPaises(1); }
+            else if (!gp.buttons[13]?.pressed) buttonPressedState.dpadDown = false;
+
+            if (gp.buttons[14]?.pressed && !buttonPressedState.dpadLeft) {
+                buttonPressedState.dpadLeft = true;
+                const t = orgData[orgKeys[currentSelectedIndex]].info.length;
+                currentInfoPage = (currentInfoPage - 1 + t) % t;
+                renderUIElements(orgKeys[currentSelectedIndex]);
+            } else if (!gp.buttons[14]?.pressed) buttonPressedState.dpadLeft = false;
+
+            if (gp.buttons[15]?.pressed && !buttonPressedState.dpadRight) {
+                buttonPressedState.dpadRight = true;
+                const t = orgData[orgKeys[currentSelectedIndex]].info.length;
+                currentInfoPage = (currentInfoPage + 1) % t;
+                renderUIElements(orgKeys[currentSelectedIndex]);
+            } else if (!gp.buttons[15]?.pressed) buttonPressedState.dpadRight = false;
+
+            if (gp.buttons[2]?.pressed && !buttonPressedState.square) { buttonPressedState.square = true; navegarOrganizaciones(-1); }
+            else if (!gp.buttons[2]?.pressed) buttonPressedState.square = false;
+
+            if (gp.buttons[1]?.pressed && !buttonPressedState.circle) { buttonPressedState.circle = true; navegarOrganizaciones(1); }
+            else if (!gp.buttons[1]?.pressed) buttonPressedState.circle = false;
         }
-        window.addEventListener("gamepadconnected", () => { requestAnimationFrame(loopMando); });
 
-        // ==================== DISPARADOR DE PANTALLA VR ====================
-        actualizarInterfazHTML();
+        // ==================== RENDERING LOOP CON TEXTURA DINÁMICA ====================
+        function animate() {
+            requestAnimationFrame(animate);
 
+            if (earth) {
+                currentRotationQuaternion.slerp(targetRotationQuaternion, 0.1);
+                earth.quaternion.copy(currentRotationQuaternion);
+            }
+
+            // Actualizar la textura interna de Cesium en tiempo real
+            if (cesiumViewer) {
+                cesiumViewer.scene.render();
+                cesiumTexture.needsUpdate = true;
+            }
+
+            handleGamepadInput();
+
+            if (isVR) {
+                effect.render(scene, camera);
+            } else {
+                if (mouseControls) mouseControls.update();
+                renderer.render(scene, camera);
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            effect.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        init();
+
+        // ==================== INICIAR VR ====================
         document.getElementById('permission-btn').addEventListener('click', async () => {
-            try {
-                document.getElementById('permission-btn').style.display = 'none';
-                document.getElementById('uiWrapper').style.display = 'flex'; // Mostrar interfaz
-
-                const docEl = document.documentElement;
-                if (docEl.requestFullscreen) {
-                    await docEl.requestFullscreen({ navigationUI: "hide" });
-                } else if (docEl.webkitRequestFullscreen) {
-                    await docEl.webkitRequestFullscreen({ navigationUI: "hide" });
-                }
-
-                if (screen.orientation && screen.orientation.lock) {
-                    await screen.orientation.lock("landscape-primary").catch(err => console.log("Bloqueo de rotación ignorado"));
-                }
-            } catch (error) {
-                console.log("Error al iniciar pantalla completa:", error);
+            document.getElementById('permission-btn').style.display = 'none';
+            isVR = true;
+            
+            const docEl = document.documentElement;
+            if (docEl.requestFullscreen) await docEl.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+            if (screen.orientation && screen.orientation.lock) {
+                await screen.orientation.lock("landscape-primary").catch(() => {});
             }
+
+            document.getElementById('reticle-pc').style.display = 'none';
+            document.getElementById('reticle-left').style.display = 'block';
+            document.getElementById('reticle-right').style.display = 'block';
+            
+            onWindowResize();
         });
     </script>
 </body>
