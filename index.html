@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="utf-8">
-    <title>Ciudadanía VR - Estabilidad Total</title>
+    <title>Ciudadanía VR - Estabilidad Absoluta Blindada</title>
     <script src="https://cdn.jsdelivr.net/npm/cesium@1.141/Build/Cesium/Cesium.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/cesium@1.141/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
     
@@ -24,7 +24,7 @@
 </head>
 <body>
     
-    <button id="btnIniciar">ENTRAR EN MODO VR</button>
+    <button id="btnIniciar">ENTRAR EN MODO VR ESTABLE</button>
 
     <div id="vrWrapper">
         <div class="vrEye"><div id="cesiumLeft" class="cesiumContainer"></div></div>
@@ -32,16 +32,24 @@
     </div>
 
     <script>
+        // CONFIGURACIÓN DE FUERZA BRUTA PARA WEBGL MÓVIL
         const config = {
-            terrainProvider: new Cesium.EllipsoidTerrainProvider(),
-            skyBox: false, animation: false, timeline: false,
-            fullscreenButton: false, homeButton: false, geocoder: false,
-            baseLayerPicker: false, navigationHelpButton: false, sceneModePicker: false,
+            terrainProvider: new Cesium.EllipsoidTerrainProvider(), // Modelo geométrico plano sin relieves pesados
+            skyBox: false, 
+            animation: false, 
+            timeline: false,
+            fullscreenButton: false, 
+            homeButton: false, 
+            geocoder: false,
+            baseLayerPicker: false, 
+            navigationHelpButton: false, 
+            sceneModePicker: false,
             requestRenderMode: false,
-            // SOLUCIÓN 1: Usar búfer de profundidad logarítmico para evitar corrupción lejana en móviles
             contextOptions: {
                 webgl: {
-                    logarithmicDepthBuffer: true
+                    logarithmicDepthBuffer: false, // Desactivado aquí: en algunos procesadores móviles causa parpadeo masivo
+                    failIfMajorPerformanceCaveat: false,
+                    powerPreference: "high-performance" // Fuerza el uso de la GPU al máximo nivel disponible
                 }
             }
         };
@@ -49,25 +57,29 @@
         const viewerL = new Cesium.Viewer('cesiumLeft', config);
         const viewerR = new Cesium.Viewer('cesiumRight', config);
 
-        // Limpieza estricta de UI de Cesium y optimización de renderizado
+        // REFUERZO DE MOTOR GRÁFICO (EVITA CORRUPCIÓN DE POLÍGONOS)
         [viewerL, viewerR].forEach(v => {
             v.scene.backgroundColor = Cesium.Color.BLACK;
             v.bottomContainer.style.display = 'none';
             
-            // SOLUCIÓN 2: Ajustar el plano Near. En VR espacial, nada está a menos de 1km. 
-            // Esto aumenta drásticamente la precisión del renderizado lejano.
-            v.scene.camera.frustum.near = 1000.0; 
-            
-            // SOLUCIÓN 3: Desactivar optimizaciones agresivas que causan Culling incorrecto
-            v.scene.globe.depthTestAgainstTerrain = false;
-            v.scene.sseDenominator = 0.5; // Ayuda a mantener modelos cargados
+            // Forzar plano de renderizado seguro
+            v.scene.camera.frustum.near = 10000.0; // Elevado para dar máxima precisión de renderizado
+            v.scene.camera.frustum.far = 100000000.0;
+
+            // BLINDAJE CONTRA CORRUPCIÓN (CULLING Y TEXTURAS)
+            v.scene.globe.showAtmosphere = false; // APAGA la atmósfera (Causa principal de corrupción visual en móviles)
+            v.scene.globe.showGroundAtmosphere = false;
+            v.scene.globe.enableLighting = false; // Luz plana: evita que el cálculo de sombras rompa el renderizado
+            v.scene.globe.maximumScreenSpaceError = 64; // Reduce drásticamente el detalle de carga para que no colapse la GPU
+            v.scene.globe.tileCacheSize = 200; // Reserva caché estática de texturas
+            v.scene.shadows = false;
 
             const sccc = v.scene.screenSpaceCameraController;
             sccc.enableRotate = sccc.enableZoom = sccc.enableTranslate = sccc.enableTilt = false;
         });
 
-        // --- SISTEMA DE COORDENADAS ANCLADO (MUNDO FIJO) ---
-        const DISTANCIA_ORBITAL = 18000000;
+        // --- COORDENADAS DE SEGURIDAD DE CABINA ---
+        const DISTANCIA_ORBITAL = 17500000;
         const POSICION_FIJA_VR = new Cesium.Cartesian3(0, -DISTANCIA_ORBITAL, 0); 
         
         let gyroYaw = 0.0, gyroPitch = 0.0, gyroRoll = 0.0;
@@ -75,11 +87,10 @@
         let manualYaw = 0.0;
         let manualPitch = 0.0;
 
-        // Aumentamos ligeramente la separación para mejor efecto 3D a esta distancia
-        const SEPARACION_OJOS_METROS = 50000.0; 
+        const SEPARACION_OJOS_METROS = 30000.0; 
         let sensoresActivos = false;
 
-        // --- RENDERIZADO CON VISTA FIJA Y MIRADA LIBRE ---
+        // --- RENDERIZADO ESTABLE ---
         function renderScene() {
             let totalHeading = gyroYaw + manualYaw;
             let totalPitch = gyroPitch + manualPitch;
@@ -102,14 +113,13 @@
             viewerR.camera.setView({ destination: posOjoR, orientation: { direction: dirAdelante, up: dirArriba } });
         }
 
-        // --- BUCLE DE ANIMACIÓN NATIVO ---
+        // --- LOOP DE ACTUALIZACIÓN ---
         function buclePrincipal() {
             actualizarMando();
             renderScene();
             requestAnimationFrame(buclePrincipal);
         }
 
-        // --- SECCIÓN MANDO ---
         function actualizarMando() {
             const gamepads = navigator.getGamepads();
             let gp = null;
@@ -126,7 +136,7 @@
             }
         }
 
-        // --- CAPTURA DE GIROSCOPIO REMAPEADA PARA MÓVIL HORIZONTAL ---
+        // --- FILTRADO DE GIROSCOPIO DE ALTA ESTABILIDAD ---
         function procesarDatosSensores(e) {
             sensoresActivos = true;
             let alpha = e.alpha || 0; 
@@ -144,24 +154,24 @@
                 roll = Cesium.Math.toRadians(gamma);
             }
 
-            // Filtro suave para evitar temblores
-            filtroGiro.heading = Cesium.Math.lerp(filtroGiro.heading, heading, 0.25);
-            filtroGiro.pitch = Cesium.Math.lerp(filtroGiro.pitch, pitch, 0.25);
-            filtroGiro.roll = Cesium.Math.lerp(filtroGiro.roll, roll, 0.25);
+            // Filtro matemático Lerp más ajustado (0.15) para máxima estabilidad de muestreo
+            filtroGiro.heading = Cesium.Math.lerp(filtroGiro.heading, heading, 0.15);
+            filtroGiro.pitch = Cesium.Math.lerp(filtroGiro.pitch, pitch, 0.15);
+            filtroGiro.roll = Cesium.Math.lerp(filtroGiro.roll, roll, 0.15);
 
             gyroYaw = filtroGiro.heading;
             gyroPitch = filtroGiro.pitch;
             gyroRoll = filtroGiro.roll;
         }
 
-        // --- INTERRUPTOR DE ARRANQUE INMERSIVO ---
+        // --- INICIALIZACIÓN ---
         document.getElementById('btnIniciar').addEventListener('click', async () => {
             document.getElementById('btnIniciar').style.display = 'none';
             try {
                 const docEl = document.documentElement;
                 if (docEl.requestFullscreen) await docEl.requestFullscreen({ navigationUI: "hide" });
                 if (screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape-primary");
-            } catch (err) { console.log("Bloqueo de orientación ignorado."); }
+            } catch (err) { console.log("Bloqueo de pantalla omitido."); }
 
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 try {
