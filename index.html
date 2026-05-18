@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="utf-8">
-    <title>Ciudadanía VR - Inmersión Espacial</title>
+    <title>Ciudadanía VR - Estabilidad Total</title>
     <script src="https://cdn.jsdelivr.net/npm/cesium@1.141/Build/Cesium/Cesium.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/cesium@1.141/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
     
@@ -32,98 +32,77 @@
     </div>
 
     <script>
-        // Configuración de Cesium optimizada para alto rendimiento móvil
         const config = {
             terrainProvider: new Cesium.EllipsoidTerrainProvider(),
             skyBox: false, animation: false, timeline: false,
             fullscreenButton: false, homeButton: false, geocoder: false,
             baseLayerPicker: false, navigationHelpButton: false, sceneModePicker: false,
-            requestRenderMode: false 
+            requestRenderMode: false,
+            // SOLUCIÓN 1: Usar búfer de profundidad logarítmico para evitar corrupción lejana en móviles
+            contextOptions: {
+                webgl: {
+                    logarithmicDepthBuffer: true
+                }
+            }
         };
 
         const viewerL = new Cesium.Viewer('cesiumLeft', config);
         const viewerR = new Cesium.Viewer('cesiumRight', config);
 
-        // Limpieza de UI y bloqueo de controles táctiles nativos
+        // Limpieza estricta de UI de Cesium y optimización de renderizado
         [viewerL, viewerR].forEach(v => {
             v.scene.backgroundColor = Cesium.Color.BLACK;
             v.bottomContainer.style.display = 'none';
-            v.scene.camera.frustum.near = 1.0; 
-            v.scene.screenSpaceCameraController.enableRotate = false;
-            v.scene.screenSpaceCameraController.enableZoom = false;
-            v.scene.screenSpaceCameraController.enableTranslate = false;
-            v.scene.screenSpaceCameraController.enableTilt = false;
+            
+            // SOLUCIÓN 2: Ajustar el plano Near. En VR espacial, nada está a menos de 1km. 
+            // Esto aumenta drásticamente la precisión del renderizado lejano.
+            v.scene.camera.frustum.near = 1000.0; 
+            
+            // SOLUCIÓN 3: Desactivar optimizaciones agresivas que causan Culling incorrecto
+            v.scene.globe.depthTestAgainstTerrain = false;
+            v.scene.sseDenominator = 0.5; // Ayuda a mantener modelos cargados
+
+            const sccc = v.scene.screenSpaceCameraController;
+            sccc.enableRotate = sccc.enableZoom = sccc.enableTranslate = sccc.enableTilt = false;
         });
 
-        // --- SOLUCIÓN AL PANTALLAZO NEGRO: COORDENADAS CORREGIDAS ---
-        // Nos colocamos en una distancia orbital estable donde el renderizador no sufra clipping interno.
-        const DISTANCIA_ORBITAL = 19000000; 
+        // --- SISTEMA DE COORDENADAS ANCLADO (MUNDO FIJO) ---
+        const DISTANCIA_ORBITAL = 18000000;
         const POSICION_FIJA_VR = new Cesium.Cartesian3(0, -DISTANCIA_ORBITAL, 0); 
         
-        // El giroscopio físico arranca en 0
         let gyroYaw = 0.0, gyroPitch = 0.0, gyroRoll = 0.0;
         let filtroGiro = { heading: 0, pitch: 0, roll: 0 };
-        
-        // Modificadores del stick del mando
         let manualYaw = 0.0;
         let manualPitch = 0.0;
 
-        const SEPARACION_OJOS_METROS = 35000.0; 
+        // Aumentamos ligeramente la separación para mejor efecto 3D a esta distancia
+        const SEPARACION_OJOS_METROS = 50000.0; 
         let sensoresActivos = false;
 
-        // --- SISTEMA NATIVO DE PARTICULAS (Estrellas Espaciales Flotantes) ---
-        function crearEfectoEstrellas(viewer) {
-            viewer.scene.primitives.add(new Cesium.ParticleSystem({
-                image: '../Widgets/Images/ImageryProviders/earthAtNight.png', // Textura nativa interna pequeña
-                startColor: Cesium.Color.WHITE.withAlpha(0.8),
-                endColor: Cesium.Color.CYAN.withAlpha(0.0),
-                startSize: 5.0,
-                endSize: 2.0,
-                emissionRate: 150,
-                modelMatrix: Cesium.Transforms.eastNorthUpToFixedFrame(POSICION_FIJA_VR),
-                lifetime: 8.0,
-                loop: true,
-                emitter: new Cesium.SphereEmitter(400000.0), // Nube esférica de partículas rodeando al usuario
-                updateCallback: function(particle) {
-                    // Mantener las partículas flotando suavemente en el espacio simulando polvo estelar
-                    particle.position = Cesium.Cartesian3.add(particle.position, new Cesium.Cartesian3(0, 0, 100), new Cesium.Cartesian3());
-                }
-            }));
-        }
-        
-        // Inicializar partículas en ambos ojos
-        crearEfectoEstrellas(viewerL);
-        crearEfectoEstrellas(viewerR);
-
-        // --- RENDERIZADO CORREGIDO ---
+        // --- RENDERIZADO CON VISTA FIJA Y MIRADA LIBRE ---
         function renderScene() {
-            // Unificamos las rotaciones del giroscopio y el stick
             let totalHeading = gyroYaw + manualYaw;
             let totalPitch = gyroPitch + manualPitch;
             let totalRoll = gyroRoll;
 
-            // Matriz local pura desligada del movimiento de la Tierra
             let hpr = new Cesium.HeadingPitchRoll(totalHeading, totalPitch, totalRoll);
             let rotMatrix = Cesium.Matrix3.fromHeadingPitchRoll(hpr);
 
-            // Vectores directores espaciales
             let dirAdelante = Cesium.Matrix3.multiplyByVector(rotMatrix, new Cesium.Cartesian3(0, 0, -1), new Cesium.Cartesian3());
             let dirArriba = Cesium.Matrix3.multiplyByVector(rotMatrix, new Cesium.Cartesian3(0, 1, 0), new Cesium.Cartesian3());
             let dirDerecha = Cesium.Matrix3.multiplyByVector(rotMatrix, new Cesium.Cartesian3(1, 0, 0), new Cesium.Cartesian3());
 
-            // Posicionamiento asimétrico de los lentes VR
             let desplazarL = Cesium.Cartesian3.multiplyByScalar(dirDerecha, -SEPARACION_OJOS_METROS, new Cesium.Cartesian3());
             let desplazarR = Cesium.Cartesian3.multiplyByScalar(dirDerecha, SEPARACION_OJOS_METROS, new Cesium.Cartesian3());
 
             let posOjoL = Cesium.Cartesian3.add(POSICION_FIJA_VR, desplazarL, new Cesium.Cartesian3());
             let posOjoR = Cesium.Cartesian3.add(POSICION_FIJA_VR, desplazarR, new Cesium.Cartesian3());
 
-            // Actualización forzada de la vista de cámaras
             viewerL.camera.setView({ destination: posOjoL, orientation: { direction: dirAdelante, up: dirArriba } });
             viewerR.camera.setView({ destination: posOjoR, orientation: { direction: dirAdelante, up: dirArriba } });
         }
 
-        // --- LOOP DE RENDERIZADO GRÁFICO ---
+        // --- BUCLE DE ANIMACIÓN NATIVO ---
         function buclePrincipal() {
             actualizarMando();
             renderScene();
@@ -139,30 +118,22 @@
             if (gp) {
                 const deadzone = 0.15;
                 const aplicarDeadzone = (v) => Math.abs(v) > deadzone ? v : 0;
-
                 const stickIzquierdoX = aplicarDeadzone(gp.axes[0]); 
                 const stickIzquierdoY = aplicarDeadzone(gp.axes[1]); 
 
-                if (stickIzquierdoX !== 0) {
-                    manualYaw -= stickIzquierdoX * 0.03; // Rotación sobre el eje de la Tierra mediante el stick
-                }
-                if (stickIzquierdoY !== 0) {
-                    manualPitch += stickIzquierdoY * 0.02;
-                }
+                if (stickIzquierdoX !== 0) manualYaw -= stickIzquierdoX * 0.03;
+                if (stickIzquierdoY !== 0) manualPitch += stickIzquierdoY * 0.02;
             }
         }
 
-        // --- SISTEMA DE CAPTURA DE GIROSCOPIO COMPENSADO ---
+        // --- CAPTURA DE GIROSCOPIO REMAPEADA PARA MÓVIL HORIZONTAL ---
         function procesarDatosSensores(e) {
             sensoresActivos = true;
-
             let alpha = e.alpha || 0; 
             let beta = e.beta || 0;   
             let gamma = e.gamma || 0; 
 
             let heading, pitch, roll;
-
-            // Mapeado geométrico estricto para modo Landscape-Primary (Gafas VR)
             if (window.innerHeight < window.innerWidth) {
                 heading = Cesium.Math.toRadians(alpha); 
                 pitch = Cesium.Math.toRadians(-gamma);  
@@ -173,7 +144,7 @@
                 roll = Cesium.Math.toRadians(gamma);
             }
 
-            // Atenuación del ruido mecánico para estabilizar la imagen en el visor
+            // Filtro suave para evitar temblores
             filtroGiro.heading = Cesium.Math.lerp(filtroGiro.heading, heading, 0.25);
             filtroGiro.pitch = Cesium.Math.lerp(filtroGiro.pitch, pitch, 0.25);
             filtroGiro.roll = Cesium.Math.lerp(filtroGiro.roll, roll, 0.25);
@@ -183,15 +154,14 @@
             gyroRoll = filtroGiro.roll;
         }
 
-        // --- ACTIVADOR INMERSIVO ---
+        // --- INTERRUPTOR DE ARRANQUE INMERSIVO ---
         document.getElementById('btnIniciar').addEventListener('click', async () => {
             document.getElementById('btnIniciar').style.display = 'none';
-
             try {
                 const docEl = document.documentElement;
                 if (docEl.requestFullscreen) await docEl.requestFullscreen({ navigationUI: "hide" });
                 if (screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape-primary");
-            } catch (err) { console.log("Bloqueo de pantalla omitido."); }
+            } catch (err) { console.log("Bloqueo de orientación ignorado."); }
 
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 try {
@@ -205,7 +175,6 @@
                     window.addEventListener('deviceorientation', procesarDatosSensores, true);
                 }
             }
-
             buclePrincipal();
         });
     </script>
