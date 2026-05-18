@@ -2,106 +2,203 @@
 <html lang="es">
 <head>
     <meta charset="utf-8">
-    <title>Globo 3D de la Tierra - Selecciona País</title>
-    <script src="https://cesium.com/downloads/cesiumjs/releases/1.141/Build/Cesium/Cesium.js"></script>
-    <link href="https://cesium.com/downloads/cesiumjs/releases/1.141/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <title>Tierra VR - Producción GitHub</title>
+    <script src="https://cdn.jsdelivr.net/npm/cesium@1.117/Build/Cesium/Cesium.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/cesium@1.117/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; font-family: Arial, sans-serif; }
-        #cesiumContainer { width: 100vw; height: 100vh; }
-        #panel {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 15px;
-            border-radius: 8px;
-            z-index: 1000;
-            box-shadow: 0 0 10px rgba(0,0,0,0.5);
-        }
-        select {
-            padding: 10px;
-            font-size: 16px;
-            width: 280px;
-            border-radius: 6px;
-        }
-        h2 { margin: 0 0 10px 0; }
+        body, html { margin: 0; padding: 0; overflow: hidden; background-color: #000; width: 100vw; height: 100vh; color: white; font-family: sans-serif; }
+        #vrWrapper { display: flex; width: 100vw; height: 100vh; cursor: pointer; }
+        .vrEye { width: 50vw; height: 100vh; position: relative; overflow: hidden; }
+        .cesiumContainer { width: 100%; height: 100%; }
     </style>
 </head>
 <body>
-    <div id="cesiumContainer"></div>
-
-    <div id="panel">
-        <h2>🌍 Selecciona un país</h2>
-        <select id="countrySelect">
-            <option value="">-- Elige un país --</option>
-        </select>
+    
+    <div id="vrWrapper">
+        <div class="vrEye"><div id="cesiumLeft" class="cesiumContainer"></div></div>
+        <div class="vrEye"><div id="cesiumRight" class="cesiumContainer"></div></div>
     </div>
 
     <script>
-        // === CONFIGURACIÓN BÁSICA ===
-        Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ5cCI6IkpXVCJ9'; // Token público de Cesium (funciona para pruebas)
-
-        const viewer = new Cesium.Viewer('cesiumContainer', {
-            terrain: Cesium.Terrain.fromWorldTerrain(),
-            skyBox: true,
-            animation: false,
-            timeline: false,
-            fullscreenButton: true,
-            geocoder: true
-        });
-
-        // Lista de países con bounding boxes (puedes ampliarla)
-        const countries = {
-            "Argentina": [-73.5, -55.2, -53.6, -21.8],
-            "Bolivia": [-69.6, -22.9, -57.5, -9.7],
-            "Brasil": [-73.9, -33.8, -34.8, 5.3],
-            "Chile": [-75.6, -55.9, -66.4, -17.5],
-            "Colombia": [-79.0, -4.2, -66.9, 12.4],
-            "Ecuador": [-81.0, -5.0, -75.2, 1.4],
-            "México": [-118.4, 14.5, -86.7, 32.7],
-            "Perú": [-81.3, -18.3, -68.7, -0.0],
-            "España": [-9.3, 36.0, 3.3, 43.8],
-            "Estados Unidos": [-125.0, 24.4, -66.9, 49.4],
-            "Francia": [-5.1, 42.3, 9.6, 51.1],
-            "Italia": [6.6, 36.6, 18.5, 47.1],
-            "Japón": [129.3, 31.0, 145.8, 45.5],
-            "China": [73.5, 18.2, 134.1, 53.6],
-            "India": [68.1, 6.8, 97.4, 37.0]
-            // Agrega más países aquí
+        // --- CONFIGURACIÓN DE CAPAS GLOBALES (HTTPS SEGURO) ---
+        // Servidor Satelital de Esri
+        const crearSateliteProvider = () => {
+            return new Cesium.UrlTemplateImageryProvider({
+                url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                maximumLevel: 19
+            });
         };
 
-        // Llenar el select
-        const select = document.getElementById('countrySelect');
-        Object.keys(countries).sort().forEach(country => {
-            const option = document.createElement('option');
-            option.value = country;
-            option.textContent = country;
-            select.appendChild(option);
-        });
-
-        // Evento al cambiar país
-        select.addEventListener('change', function() {
-            const countryName = this.value;
-            if (!countryName) return;
-
-            const bbox = countries[countryName]; // [west, south, east, north]
-            
-            viewer.camera.flyTo({
-                destination: Cesium.Rectangle.fromDegrees(
-                    bbox[0], bbox[1], bbox[2], bbox[3]
-                ),
-                duration: 2.5,           // segundos
-                maximumHeight: 8000000   // altura máxima durante el vuelo
+        // Servidor de Fronteras y Nombres Políticos de Esri
+        const crearFronterasProvider = () => {
+            return new Cesium.UrlTemplateImageryProvider({
+                url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+                maximumLevel: 19
             });
+        };
+
+        const configL = {
+            imageryProvider: crearSateliteProvider(),
+            terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+            skyBox: false, skyAtmosphere: false, animation: false, timeline: false,
+            fullscreenButton: false, homeButton: false, geocoder: false,
+            baseLayerPicker: false, navigationHelpButton: false, sceneModePicker: false,
+            requestRenderMode: true
+        };
+
+        const configR = {
+            imageryProvider: crearSateliteProvider(),
+            terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+            skyBox: false, skyAtmosphere: false, animation: false, timeline: false,
+            fullscreenButton: false, homeButton: false, geocoder: false,
+            baseLayerPicker: false, navigationHelpButton: false, sceneModePicker: false,
+            requestRenderMode: true
+        };
+
+        // Inicializamos visores independientes
+        const viewerL = new Cesium.Viewer('cesiumLeft', configL);
+        const viewerR = new Cesium.Viewer('cesiumRight', configR);
+
+        // Superponemos las etiquetas y divisiones geográficas encima
+        viewerL.imageryLayers.addImageryProvider(crearFronterasProvider());
+        viewerR.imageryLayers.addImageryProvider(crearFronterasProvider());
+
+        [viewerL, viewerR].forEach(v => {
+            v.scene.backgroundColor = Cesium.Color.BLACK;
+            v.bottomContainer.style.display = 'none';
+            v.scene.camera.frustum.near = 0.1; 
+            
+            // Apagamos luces dinámicas y atmósfera para maximizar rendimiento en celulares
+            v.scene.globe.enableLighting = false;
+            v.scene.globe.showGroundAtmosphere = false;
+            
+            const sccc = v.scene.screenSpaceCameraController;
+            sccc.enableRotate = sccc.enableZoom = sccc.enableTranslate = sccc.enableTilt = false;
         });
 
-        // Vista inicial
-        viewer.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(-50, 20, 15000000),
-            orientation: {
-                heading: Cesium.Math.toRadians(0),
-                pitch: Cesium.Math.toRadians(-70)
+        // --- SISTEMA VR / MATRICIAL DE ORIENTACIÓN ---
+        let worldQuaternion = Cesium.Quaternion.IDENTITY.clone();
+        let gyroQuaternion = Cesium.Quaternion.IDENTITY.clone();
+        let currentZoomDistance = 20000000; 
+        const RADIO_TIERRA = 6378137;
+
+        function renderScene() {
+            let finalRotation = Cesium.Quaternion.multiply(worldQuaternion, gyroQuaternion, new Cesium.Quaternion());
+            let matrix = Cesium.Matrix3.fromQuaternion(finalRotation);
+
+            let dirBase = Cesium.Matrix3.multiplyByVector(matrix, new Cesium.Cartesian3(0, 0, -1), new Cesium.Cartesian3());
+            let upBase = Cesium.Matrix3.multiplyByVector(matrix, new Cesium.Cartesian3(0, 1, 0), new Cesium.Cartesian3());
+
+            let alturaActual = Math.max(1, currentZoomDistance - RADIO_TIERRA);
+            let eyeSeparation = alturaActual * 0.008;
+
+            let posL = Cesium.Matrix3.multiplyByVector(matrix, new Cesium.Cartesian3(-eyeSeparation, 0, currentZoomDistance), new Cesium.Cartesian3());
+            viewerL.camera.setView({ destination: posL, orientation: { direction: dirBase, up: upBase } });
+
+            let posR = Cesium.Matrix3.multiplyByVector(matrix, new Cesium.Cartesian3(eyeSeparation, 0, currentZoomDistance), new Cesium.Cartesian3());
+            viewerR.camera.setView({ destination: posR, orientation: { direction: dirBase, up: upBase } });
+
+            viewerL.scene.requestRender();
+            viewerR.scene.requestRender();
+        }
+        
+        setTimeout(renderScene, 500);
+
+        // --- CONTROLES DE MANDO (GAMEPAD) ---
+        let gamepadConnected = false;
+        function loopMando() {
+            const gamepads = navigator.getGamepads();
+            let gp = null;
+            for(let i=0; i<gamepads.length; i++) { if(gamepads[i]) { gp = gamepads[i]; break; } }
+            
+            if (gp) {
+                gamepadConnected = true;
+                const deadzone = 0.15;
+                const aplicarDeadzone = (v) => Math.abs(v) > deadzone ? v : 0;
+
+                const rotX = aplicarDeadzone(gp.axes[0]); 
+                const rotY = aplicarDeadzone(gp.axes[1]); 
+                let alturaActual = Math.max(1, currentZoomDistance - RADIO_TIERRA);
+
+                if (rotX !== 0 || rotY !== 0) {
+                    let factorRotacion = Math.max(0.0001, alturaActual / 20000000) * 0.04;
+                    let rotXQuat = Cesium.Quaternion.fromAxisAngle(Cesium.Cartesian3.UNIT_Y, rotX * factorRotacion);
+                    let rotYQuat = Cesium.Quaternion.fromAxisAngle(Cesium.Cartesian3.UNIT_X, rotY * factorRotacion);
+                    
+                    let tempQuat = Cesium.Quaternion.multiply(worldQuaternion, rotXQuat, new Cesium.Quaternion());
+                    worldQuaternion = Cesium.Quaternion.multiply(tempQuat, rotYQuat, new Cesium.Quaternion());
+                    Cesium.Quaternion.normalize(worldQuaternion, worldQuaternion);
+                }
+
+                const zoomFactor = aplicarDeadzone(gp.axes[3]);
+                if (zoomFactor !== 0) {
+                    currentZoomDistance += zoomFactor * (alturaActual * 0.07);
+                    if (currentZoomDistance < (RADIO_TIERRA + 0.5)) currentZoomDistance = RADIO_TIERRA + 0.5;
+                }
+
+                if (rotX !== 0 || rotY !== 0 || zoomFactor !== 0) { renderScene(); }
+            }
+            requestAnimationFrame(loopMando);
+        }
+        window.addEventListener("gamepadconnected", () => { requestAnimationFrame(loopMando); });
+
+        // --- GIROSCOPIO REMAPEADO ---
+        let filtroGiro = { alpha: 0, beta: 0, gamma: 0 };
+
+        function procesarDatosSensores(e) {
+            let valAlpha = e.alpha;
+            let valBeta = e.beta;
+            let valGamma = e.gamma;
+
+            if (valAlpha === null || valBeta === null || valGamma === null) return;
+
+            filtroGiro.alpha = Cesium.Math.lerp(filtroGiro.alpha, valAlpha, 0.25);
+            filtroGiro.beta = Cesium.Math.lerp(filtroGiro.beta, valBeta, 0.25);
+            filtroGiro.gamma = Cesium.Math.lerp(filtroGiro.gamma, valGamma, 0.25);
+
+            let a = Cesium.Math.toRadians(filtroGiro.alpha); 
+            let b = Cesium.Math.toRadians(filtroGiro.beta);   
+            let g = Cesium.Math.toRadians(filtroGiro.gamma); 
+
+            let cX = Math.cos(b), sX = Math.sin(b);
+            let cY = Math.cos(g), sY = Math.sin(g);
+            let cZ = Math.cos(a), sZ = Math.sin(a);
+
+            let m0 = cY * cZ + sX * sY * sZ;
+            let m1 = cZ * sX * sY - cY * sZ;
+            let m2 = cX * sY;
+            let m3 = cX * sZ;
+            let m4 = cX * cZ;
+            let m5 = -sX;
+            let m6 = cY * sX * sZ - cZ * sY;
+            let m7 = sY * sZ + cY * cZ * sX;
+            let m8 = cX * cY;
+
+            let matrix3 = new Cesium.Matrix3(m0, m1, m2, m3, m4, m5, m6, m7, m8);
+            gyroQuaternion = Cesium.Quaternion.fromRotationMatrix(matrix3, gyroQuaternion);
+
+            renderScene();
+        }
+
+        window.addEventListener('deviceorientationabsolute', procesarDatosSensores, true);
+        window.addEventListener('deviceorientation', procesarDatosSensores, true);
+
+        // --- ACTIVADOR DE PANTALLA COMPLETA TOTAL (FORZADO MEDIANTE HTTPS) ---
+        document.getElementById('vrWrapper').addEventListener('click', async () => {
+            try {
+                const docEl = document.documentElement;
+                if (docEl.requestFullscreen) {
+                    await docEl.requestFullscreen({ navigationUI: "hide" });
+                } else if (docEl.webkitRequestFullscreen) {
+                    await docEl.webkitRequestFullscreen({ navigationUI: "hide" });
+                }
+
+                if (screen.orientation && screen.orientation.lock) {
+                    await screen.orientation.lock("landscape-primary").catch(err => console.log("Bloqueo ignorado"));
+                }
+            } catch (error) {
+                console.log("Error de fullscreen:", error);
             }
         });
     </script>
