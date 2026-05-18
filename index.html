@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="utf-8">
-    <title>Tierra VR Total - Espacio Libre 3D</title>
+    <title>Tierra VR - Espacio Libre Absoluto</title>
     <script src="https://cdn.jsdelivr.net/npm/cesium@1.141/Build/Cesium/Cesium.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/cesium@1.141/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
     
@@ -24,7 +24,7 @@
 </head>
 <body>
     
-    <button id="btnIniciar">ENTRAR EN MODO CABINA VR</button>
+    <button id="btnIniciar">ENTRAR EN ESPACIO LIBRE VR</button>
 
     <div id="vrWrapper">
         <div class="vrEye"><div id="cesiumLeft" class="cesiumContainer"></div></div>
@@ -37,7 +37,7 @@
             skyBox: false, animation: false, timeline: false,
             fullscreenButton: false, homeButton: false, geocoder: false,
             baseLayerPicker: false, navigationHelpButton: false, sceneModePicker: false,
-            requestRenderMode: false // Renderizado fluido continuo a 60 FPS
+            requestRenderMode: false // Renderizado nativo continuo a 60 FPS sin pausas
         };
 
         const viewerL = new Cesium.Viewer('cesiumLeft', config);
@@ -46,53 +46,62 @@
         [viewerL, viewerR].forEach(v => {
             v.scene.backgroundColor = Cesium.Color.BLACK;
             v.bottomContainer.style.display = 'none';
-            v.scene.camera.frustum.near = 1.0; // Evita parpadeos de clipping a corta distancia
+            v.scene.camera.frustum.near = 10.0; 
             const sccc = v.scene.screenSpaceCameraController;
             sccc.enableRotate = sccc.enableZoom = sccc.enableTranslate = sccc.enableTilt = false;
         });
 
-        // --- SISTEMA DE COORDENADAS DE CABINA (Navegación Libre) ---
-        // Empezamos en el espacio, mirando hacia el centro de la tierra (0,0,0)
-        let camPosition = new Cesium.Cartesian3(0, 0, 20000000); 
+        // --- SISTEMA DE POSICIONAMIENTO EN ESPACIO LIBRE ---
+        // Iniciamos en el espacio (X=0, Y=-20000000 metros, Z=0) mirando hacia el centro de la Tierra
+        let posicionNave = new Cesium.Cartesian3(0, -20000000, 0);
         
-        // Orientación base del jugador en el espacio (Matriz de rotación de la cabeza)
-        let headQuaternion = Cesium.Quaternion.IDENTITY.clone();
-        let gyroQuaternion = Cesium.Quaternion.IDENTITY.clone();
-        
-        const SEPARACION_OJOS = 65.0; // Distancia interpupilar física real en metros (IPD) para escala 1:1 en el espacio
+        // Ángulos de la mirada del jugador (Cabeza) independientes del mundo
+        let yaw = 0.0;   // Mirar Izquierda / Derecha
+        let pitch = 0.0; // Mirar Arriba / Abajo
+        let roll = 0.0;  // Inclinación de la cabeza
+
+        // Ángulos agregados por el giroscopio físico
+        let gyroYaw = 0.0, gyroPitch = 0.0, gyroRoll = 0.0;
+
+        const IPD_DISTANCIA = 30000.0; // Separación de ojos a escala cósmica para notar el 3D del planeta
         let sensoresActivos = false;
 
-        // --- RENDERIZADO EN PRIMERA PERSONA (Estereoscópico Libre) ---
+        // --- CALCULO VECTORIAL DE DIRECCIÓN DE CÁMARA ---
         function renderScene() {
-            // Combinamos giroscopio (cabeza) y mando si aplica rotación
-            let finalRotation = Cesium.Quaternion.multiply(headQuaternion, gyroQuaternion, new Cesium.Quaternion());
-            let rotMatrix = Cesium.Matrix3.fromQuaternion(finalRotation);
+            // Combinamos los ángulos manuales del mando con los del giroscopio
+            let totalYaw = yaw + gyroYaw;
+            let totalPitch = pitch + gyroPitch;
+            let totalRoll = roll + gyroRoll;
 
-            // Extraemos las direcciones locales relativas a los ojos del jugador
-            let localDir = Cesium.Matrix3.multiplyByVector(rotMatrix, new Cesium.Cartesian3(0, 0, -1), new Cesium.Cartesian3()); // Hacia adelante
-            let localUp = Cesium.Matrix3.multiplyByVector(rotMatrix, new Cesium.Cartesian3(0, 1, 0), new Cesium.Cartesian3());  // Hacia arriba
-            let localRight = Cesium.Matrix3.multiplyByVector(rotMatrix, new Cesium.Cartesian3(1, 0, 0), new Cesium.Cartesian3()); // Lateral derecho
+            // Creamos una matriz de rotación local pura (Estilo simulación espacial de cabina)
+            let hpr = new Cesium.HeadingPitchRoll(totalYaw, totalPitch, totalRoll);
+            let rotMatrix = Cesium.Matrix3.fromHeadingPitchRoll(hpr);
 
-            // Calcular el desplazamiento lateral de los ojos basado en la posición actual de la cámara
-            let ojoIzquierdoDesplazamiento = Cesium.Cartesian3.multiplyByScalar(localRight, -SEPARACION_OJOS, new Cesium.Cartesian3());
-            let ojoDerechoDesplazamiento = Cesium.Cartesian3.multiplyByScalar(localRight, SEPARACION_OJOS, new Cesium.Cartesian3());
+            // Generamos los tres vectores directores locales de la cabeza del jugador
+            let dirAdelante = Cesium.Matrix3.multiplyByVector(rotMatrix, new Cesium.Cartesian3(0, 0, -1), new Cesium.Cartesian3());
+            let dirArriba = Cesium.Matrix3.multiplyByVector(rotMatrix, new Cesium.Cartesian3(0, 1, 0), new Cesium.Cartesian3());
+            let dirDerecha = Cesium.Matrix3.multiplyByVector(rotMatrix, new Cesium.Cartesian3(1, 0, 0), new Cesium.Cartesian3());
 
-            let posL = Cesium.Cartesian3.add(camPosition, ojoIzquierdoDesplazamiento, new Cesium.Cartesian3());
-            let posR = Cesium.Cartesian3.add(camPosition, ojoDerechoDesplazamiento, new Cesium.Cartesian3());
+            // Separación de los ojos izquierdo y derecho desplazados lateralmente en su propio eje local
+            let desplazarIzquierda = Cesium.Cartesian3.multiplyByScalar(dirDerecha, -IPD_DISTANCIA, new Cesium.Cartesian3());
+            let desplazarDerecha = Cesium.Cartesian3.multiplyByScalar(dirDerecha, IPD_DISTANCIA, new Cesium.Cartesian3());
 
-            // Forzamos a que las dos cámaras miren libremente hacia donde apunta la cabeza
-            viewerL.camera.setView({ destination: posL, orientation: { direction: localDir, up: localUp } });
-            viewerR.camera.setView({ destination: posR, orientation: { direction: localDir, up: localUp } });
+            let posOjoIzquierdo = Cesium.Cartesian3.add(posicionNave, desplazarIzquierda, new Cesium.Cartesian3());
+            let posOjoDerecho = Cesium.Cartesian3.add(posicionNave, desplazarDerecha, new Cesium.Cartesian3());
+
+            // Asignamos las vistas libres. Ahora si miras a otro lado, la Tierra desaparece de la pantalla
+            viewerL.camera.setView({ destination: posOjoIzquierdo, orientation: { direction: dirAdelante, up: dirArriba } });
+            viewerR.camera.setView({ destination: posOjoDerecho, orientation: { direction: dirAdelante, up: dirArriba } });
         }
 
-        // --- BUCLE DE ACTUALIZACIÓN ---
+        // --- BUCLE PRINCIPAL DE JUEGO ---
         function buclePrincipal() {
             actualizarMando();
             renderScene();
             requestAnimationFrame(buclePrincipal);
         }
 
-        // --- EL MANDO AHORA SE ENCARGA DEL DESPLAZAMIENTO 3D ---
+        // --- TRASLACIÓN NATIVA CON MANDO ---
         function actualizarMando() {
             const gamepads = navigator.getGamepads();
             let gp = null;
@@ -102,89 +111,80 @@
                 const deadzone = 0.15;
                 const aplicarDeadzone = (v) => Math.abs(v) > deadzone ? v : 0;
 
-                // Mandos analógicos de desplazamiento
-                const strafeX = aplicarDeadzone(gp.axes[0]); // Stick Izquierdo Horizontal (Moverse de lado)
-                const moveZ = aplicarDeadzone(gp.axes[1]);   // Stick Izquierdo Vertical (Avanzar / Retroceder)
-                const moveY = aplicarDeadzone(gp.axes[3]);   // Stick Derecho Vertical (Subir / Bajar altitud)
+                // Captura de sticks
+                const stickIzquierdoX = aplicarDeadzone(gp.axes[0]); 
+                const stickIzquierdoY = aplicarDeadzone(gp.axes[1]); 
+                const stickDerechoY = aplicarDeadzone(gp.axes[3]);   
+                const stickDerechoX = aplicarDeadzone(gp.axes[2]);   
 
-                // Dinamismo de velocidad: Nos movemos más rápido si estamos muy lejos del suelo
-                let distanciaAlCentro = Cesium.Cartesian3.magnitude(camPosition);
-                let velocidadBase = Math.max(100, (distanciaAlCentro - 6378137) * 0.05);
+                // Calcular velocidad dinámica según la distancia al centro de la Tierra
+                let distanciaAlCentro = Cesium.Cartesian3.magnitude(posicionNave);
+                let velocidadBase = Math.max(500, (distanciaAlCentro - 6378137) * 0.06);
 
-                // Obtener los vectores direccionales actuales para saber hacia dónde movernos
-                let finalRotation = Cesium.Quaternion.multiply(headQuaternion, gyroQuaternion, new Cesium.Quaternion());
-                let rotMatrix = Cesium.Matrix3.fromQuaternion(finalRotation);
+                // Volvemos a calcular los vectores directores actuales para la traslación
+                let hpr = new Cesium.HeadingPitchRoll(yaw + gyroYaw, pitch + gyroPitch, roll + gyroRoll);
+                let rotMatrix = Cesium.Matrix3.fromHeadingPitchRoll(hpr);
                 
                 let dirAdelante = Cesium.Matrix3.multiplyByVector(rotMatrix, new Cesium.Cartesian3(0, 0, -1), new Cesium.Cartesian3());
                 let dirDerecha = Cesium.Matrix3.multiplyByVector(rotMatrix, new Cesium.Cartesian3(1, 0, 0), new Cesium.Cartesian3());
                 let dirArriba = Cesium.Matrix3.multiplyByVector(rotMatrix, new Cesium.Cartesian3(0, 1, 0), new Cesium.Cartesian3());
 
-                // Calcular vectores de movimiento finales
-                if (moveZ !== 0) {
-                    let avance = Cesium.Cartesian3.multiplyByScalar(dirAdelante, -moveZ * velocidadBase, new Cesium.Cartesian3());
-                    camPosition = Cesium.Cartesian3.add(camPosition, avance, camPosition);
+                // Moverse adelante/atrás (Stick Izquierdo Vertical)
+                if (stickIzquierdoY !== 0) {
+                    let avance = Cesium.Cartesian3.multiplyByScalar(dirAdelante, -stickIzquierdoY * velocidadBase, new Cesium.Cartesian3());
+                    posicionNave = Cesium.Cartesian3.add(posicionNave, avance, posicionNave);
                 }
-                if (strafeX !== 0) {
-                    let lateral = Cesium.Cartesian3.multiplyByScalar(dirDerecha, strafeX * velocidadBase, new Cesium.Cartesian3());
-                    camPosition = Cesium.Cartesian3.add(camPosition, lateral, camPosition);
+                // Moverse lateralmente (Stick Izquierdo Horizontal)
+                if (stickIzquierdoX !== 0) {
+                    let lateral = Cesium.Cartesian3.multiplyByScalar(dirDerecha, stickIzquierdoX * velocidadBase, new Cesium.Cartesian3());
+                    posicionNave = Cesium.Cartesian3.add(posicionNave, lateral, posicionNave);
                 }
-                if (moveY !== 0) {
-                    let vertical = Cesium.Cartesian3.multiplyByScalar(dirArriba, -moveY * velocidadBase, new Cesium.Cartesian3());
-                    camPosition = Cesium.Cartesian3.add(camPosition, vertical, camPosition);
+                // Moverse arriba/abajo en el espacio (Stick Derecho Vertical)
+                if (stickDerechoY !== 0) {
+                    let vertical = Cesium.Cartesian3.multiplyByScalar(dirArriba, -stickDerechoY * velocidadBase, new Cesium.Cartesian3());
+                    posicionNave = Cesium.Cartesian3.add(posicionNave, vertical, posicionNave);
                 }
-
-                // Rotación manual auxiliar con el Stick Derecho Horizontal si existiese (Giro de nave)
-                const rotManualX = aplicarDeadzone(gp.axes[2]);
-                if (rotManualX !== 0) {
-                    let qRot = Cesium.Quaternion.fromAxisAngle(Cesium.Cartesian3.UNIT_Y, -rotManualX * 0.02);
-                    headQuaternion = Cesium.Quaternion.multiply(headQuaternion, qRot, headQuaternion);
-                    Cesium.Quaternion.normalize(headQuaternion, headQuaternion);
+                // Rotación manual alternativa de la nave (Stick Derecho Horizontal)
+                if (stickDerechoX !== 0) {
+                    yaw -= stickDerechoX * 0.03;
                 }
             }
         }
 
-        // --- LECTURA ABSOLUTA DE LA ORIENTACIÓN DE LA CABEZA ---
-        let filtroGiro = { heading: 0, pitch: 0, roll: 0 };
-
+        // --- CAPTURA DE GIROSCOPIO PARA MIRADA LIBRE ---
         function procesarDatosSensores(e) {
             sensoresActivos = true;
 
-            let alpha = e.alpha || 0; 
-            let beta = e.beta || 0;   
-            let gamma = e.gamma || 0; 
+            // Capturar datos nativos absolutos del giroscopio
+            let alpha = e.alpha || 0; // Z
+            let beta = e.beta || 0;   // X
+            let gamma = e.gamma || 0; // Y
 
-            let heading, pitch, roll;
-
-            // Mapeo adaptado exclusivamente al modo Landscape de las gafas VR
+            // Mapeo adaptado milimétricamente para las gafas VR (Modo Landscape de lado)
             if (window.innerHeight < window.innerWidth) {
-                heading = Cesium.Math.toRadians(alpha); 
-                pitch = Cesium.Math.toRadians(-gamma);  
-                roll = Cesium.Math.toRadians(beta - 90); 
+                // De lado, los ángulos cambian de posición física en el móvil
+                gyroYaw = Cesium.Math.toRadians(alpha);
+                gyroPitch = Cesium.Math.toRadians(-gamma);
+                gyroRoll = Cesium.Math.toRadians(beta - 90);
             } else {
-                heading = Cesium.Math.toRadians(alpha);
-                pitch = Cesium.Math.toRadians(beta);
-                roll = Cesium.Math.toRadians(gamma);
+                gyroYaw = Cesium.Math.toRadians(alpha);
+                gyroPitch = Cesium.Math.toRadians(beta);
+                gyroRoll = Cesium.Math.toRadians(gamma);
             }
-
-            // Suavizado dinámico suave para VR
-            filtroGiro.heading = Cesium.Math.lerp(filtroGiro.heading, heading, 0.25);
-            filtroGiro.pitch = Cesium.Math.lerp(filtroGiro.pitch, pitch, 0.25);
-            filtroGiro.roll = Cesium.Math.lerp(filtroGiro.roll, roll, 0.25);
-
-            let hpr = new Cesium.HeadingPitchRoll(filtroGiro.heading, filtroGiro.pitch, filtroGiro.roll);
-            gyroQuaternion = Cesium.Quaternion.fromHeadingPitchRoll(hpr, gyroQuaternion);
         }
 
-        // --- DISPARADOR ---
+        // --- DISPARADOR DE EVENTOS ---
         document.getElementById('btnIniciar').addEventListener('click', async () => {
             document.getElementById('btnIniciar').style.display = 'none';
 
+            // Activar pantalla completa y bloquear rotación horizontal
             try {
                 const docEl = document.documentElement;
                 if (docEl.requestFullscreen) await docEl.requestFullscreen({ navigationUI: "hide" });
                 if (screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape-primary");
-            } catch (e) { console.log(e); }
+            } catch (err) { console.log("Bloqueo de pantalla ignorado"); }
 
+            // Permisos de sensores modernos
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 try {
                     const respuesta = await DeviceOrientationEvent.requestPermission();
@@ -198,10 +198,12 @@
                 }
             }
 
+            // Comprobación automática de bloqueo
             setTimeout(() => {
-                if (!sensoresActivos) alert("Habilita los sensores de movimiento en la configuración de Chrome para interactuar.");
+                if (!sensoresActivos) alert("El giroscopio está desactivado en la configuración de tu navegador. Actívalo en Ajustes > Configuración de sitios > Sensores.");
             }, 2000);
 
+            // Arrancar simulación espacial
             buclePrincipal();
         });
     </script>
