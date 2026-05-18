@@ -11,26 +11,22 @@
         #vrWrapper { display: flex; width: 100vw; height: 100vh; cursor: pointer; }
         .vrEye { width: 50vw; height: 100vh; position: relative; overflow: hidden; }
         .cesiumContainer { width: 100%; height: 100%; }
-        #botonPermiso { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 10; padding: 10px 20px; background: rgba(0,0,0,0.7); border: 1px solid white; color: white; border-radius: 5px; }
     </style>
 </head>
 <body>
     
-    <button id="botonPermiso">Iniciar Modo VR / Activar Sensores</button>
-
     <div id="vrWrapper">
         <div class="vrEye"><div id="cesiumLeft" class="cesiumContainer"></div></div>
         <div class="vrEye"><div id="cesiumRight" class="cesiumContainer"></div></div>
     </div>
 
     <script>
-        // Desactivamos requestRenderMode para VR para asegurar máximos FPS estables y evitar lagunas visuales
         const config = {
             terrainProvider: new Cesium.EllipsoidTerrainProvider(),
             skyBox: false, animation: false, timeline: false,
             fullscreenButton: false, homeButton: false, geocoder: false,
             baseLayerPicker: false, navigationHelpButton: false, sceneModePicker: false,
-            requestRenderMode: false 
+            requestRenderMode: true
         };
 
         const viewerL = new Cesium.Viewer('cesiumLeft', config);
@@ -39,64 +35,56 @@
         [viewerL, viewerR].forEach(v => {
             v.scene.backgroundColor = Cesium.Color.BLACK;
             v.bottomContainer.style.display = 'none';
-            v.scene.camera.frustum.near = 0.1; 
+            v.scene.camera.frustum.near = 0.1;
             const sccc = v.scene.screenSpaceCameraController;
             sccc.enableRotate = sccc.enableZoom = sccc.enableTranslate = sccc.enableTilt = false;
         });
 
-        // --- ESTADO DE ORIENTACIÓN Y MUNDO ---
+        // --- ESTADO MATRICIAL ---
         let worldQuaternion = Cesium.Quaternion.IDENTITY.clone();
-        let gyroQuaternion = Cesium.Quaternion.IDENTITY.clone();
-        let currentZoomDistance = 20000000; 
+        let currentZoomDistance = 20000000;
         const RADIO_TIERRA = 6378137;
 
         function renderScene() {
-            // Combinar la rotación del mando (world) con la del giroscopio (gyro)
-            let finalRotation = Cesium.Quaternion.multiply(worldQuaternion, gyroQuaternion, new Cesium.Quaternion());
-            let matrix = Cesium.Matrix3.fromQuaternion(finalRotation);
+            let matrix = Cesium.Matrix3.fromQuaternion(worldQuaternion);
 
-            // Dirección hacia donde mira la cámara (Eje -Z) y vector hacia arriba (Eje Y)
             let dirBase = Cesium.Matrix3.multiplyByVector(matrix, new Cesium.Cartesian3(0, 0, -1), new Cesium.Cartesian3());
             let upBase = Cesium.Matrix3.multiplyByVector(matrix, new Cesium.Cartesian3(0, 1, 0), new Cesium.Cartesian3());
 
             let alturaActual = Math.max(1, currentZoomDistance - RADIO_TIERRA);
-            // Efecto de paraje (IPD dinámico según la altura para mejorar el efecto 3D)
-            let eyeSeparation = Math.min(alturaActual * 0.008, 50000); 
+            let eyeSeparation = alturaActual * 0.008;
 
-            // Ojo Izquierdo
             let posL = Cesium.Matrix3.multiplyByVector(matrix, new Cesium.Cartesian3(-eyeSeparation, 0, currentZoomDistance), new Cesium.Cartesian3());
             viewerL.camera.setView({ destination: posL, orientation: { direction: dirBase, up: upBase } });
 
-            // Ojo Derecho
             let posR = Cesium.Matrix3.multiplyByVector(matrix, new Cesium.Cartesian3(eyeSeparation, 0, currentZoomDistance), new Cesium.Cartesian3());
             viewerR.camera.setView({ destination: posR, orientation: { direction: dirBase, up: upBase } });
-        }
 
-        // --- BUCLE PRINCIPAL DE ANIMACIÓN (60 FPS Unificado) ---
-        function mainLoop() {
-            actualizarMando();
-            renderScene();
-            requestAnimationFrame(mainLoop);
+            viewerL.scene.requestRender();
+            viewerR.scene.requestRender();
         }
+        renderScene();
 
-        // --- LÓGICA DEL MANDO ---
-        function actualizarMando() {
+        // --- SISTEMA MANDO ---
+        let gamepadConnected = false;
+        function loopMando() {
             const gamepads = navigator.getGamepads();
             let gp = null;
             for(let i=0; i<gamepads.length; i++) { if(gamepads[i]) { gp = gamepads[i]; break; } }
             
             if (gp) {
+                gamepadConnected = true;
                 const deadzone = 0.15;
                 const aplicarDeadzone = (v) => Math.abs(v) > deadzone ? v : 0;
 
-                const rotX = aplicarDeadzone(gp.axes[0]); 
-                const rotY = aplicarDeadzone(gp.axes[1]); 
+                const rotX = aplicarDeadzone(gp.axes[0]);
+                const rotY = aplicarDeadzone(gp.axes[1]);
                 let alturaActual = Math.max(1, currentZoomDistance - RADIO_TIERRA);
 
                 if (rotX !== 0 || rotY !== 0) {
-                    let factorRotacion = Math.max(0.0001, alturaActual / 20000000) * 0.03;
-                    let rotXQuat = Cesium.Quaternion.fromAxisAngle(Cesium.Cartesian3.UNIT_Y, -rotX * factorRotacion);
-                    let rotYQuat = Cesium.Quaternion.fromAxisAngle(Cesium.Cartesian3.UNIT_X, -rotY * factorRotacion);
+                    let factorRotacion = Math.max(0.0001, alturaActual / 20000000) * 0.04;
+                    let rotXQuat = Cesium.Quaternion.fromAxisAngle(Cesium.Cartesian3.UNIT_Y, rotX * factorRotacion);
+                    let rotYQuat = Cesium.Quaternion.fromAxisAngle(Cesium.Cartesian3.UNIT_X, rotY * factorRotacion);
                     
                     let tempQuat = Cesium.Quaternion.multiply(worldQuaternion, rotXQuat, new Cesium.Quaternion());
                     worldQuaternion = Cesium.Quaternion.multiply(tempQuat, rotYQuat, new Cesium.Quaternion());
@@ -105,60 +93,35 @@
 
                 const zoomFactor = aplicarDeadzone(gp.axes[3]);
                 if (zoomFactor !== 0) {
-                    currentZoomDistance += zoomFactor * (alturaActual * 0.05);
-                    if (currentZoomDistance < (RADIO_TIERRA + 100)) currentZoomDistance = RADIO_TIERRA + 100;
+                    currentZoomDistance += zoomFactor * (alturaActual * 0.07);
+                    if (currentZoomDistance < (RADIO_TIERRA + 0.5)) currentZoomDistance = RADIO_TIERRA + 0.5;
                 }
+
+                if (rotX !== 0 || rotY !== 0 || zoomFactor !== 0) { renderScene(); }
             }
+            requestAnimationFrame(loopMando);
         }
+        window.addEventListener("gamepadconnected", () => { requestAnimationFrame(loopMando); });
 
-        // --- PROCESAMIENTO DEL GIROSCOPIO (Corregido para Cesium) ---
-        let filtroGiro = { heading: 0, pitch: 0, roll: 0 };
-
-        function procesarDatosSensores(e) {
-            // Corregimos la asignación de ángulos de Euler según la orientación Landscape nativa del móvil
-            let heading = Cesium.Math.toRadians(e.alpha || 0); // Z
-            let pitch = Cesium.Math.toRadians(e.beta || 0);    // X
-            let roll = Cesium.Math.toRadians(e.gamma || 0);    // Y
-
-            // Filtro de interpolación suave (Lerp) para evitar temblores del sensor
-            filtroGiro.heading = Cesium.Math.lerp(filtroGiro.heading, heading, 0.2);
-            filtroGiro.pitch = Cesium.Math.lerp(filtroGiro.pitch, pitch, 0.2);
-            filtroGiro.roll = Cesium.Math.lerp(filtroGiro.roll, roll, 0.2);
-
-            let hpr = new Cesium.HeadingPitchRoll(filtroGiro.heading, filtroGiro.pitch, filtroGiro.roll);
-            gyroQuaternion = Cesium.Quaternion.fromHeadingPitchRoll(hpr, gyroQuaternion);
-        }
-
-        // --- EVENTO DE INICIO E INTERFAZ SEGURA ---
-        const btn = document.getElementById('botonPermiso');
-        btn.addEventListener('click', async () => {
-            btn.style.display = 'none'; // Esconder botón tras iniciar
-            
-            // 1. Solicitar permisos de giroscopio en iOS/Android modernos si es necesario
-            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                try {
-                    const permissionState = await DeviceOrientationEvent.requestPermission();
-                    if (permissionState === 'granted') window.addEventListener('deviceorientation', procesarDatosSensores, true);
-                } catch (err) { console.error("Permiso denegado de sensores", err); }
-            } else {
-                window.addEventListener('deviceorientation', procesarDatosSensores, true);
-            }
-
-            // 2. Pantalla completa y bloqueo de rotación horizontal
+        // --- APERTURA INMERSIVA SEGURO CON FORZADO DE ORIENTACIÓN ---
+        document.getElementById('vrWrapper').addEventListener('click', async () => {
             try {
                 const docEl = document.documentElement;
+                
+                // Forzar la desaparición de la barra de direcciones de Chrome mediante opciones avanzadas
                 if (docEl.requestFullscreen) {
                     await docEl.requestFullscreen({ navigationUI: "hide" });
+                } else if (docEl.webkitRequestFullscreen) {
+                    await docEl.webkitRequestFullscreen({ navigationUI: "hide" });
                 }
+
+                // Forzar al dispositivo a ponerse de lado (Landscape) de forma nativa al hacer click
                 if (screen.orientation && screen.orientation.lock) {
-                    await screen.orientation.lock("landscape-primary");
+                    await screen.orientation.lock("landscape-primary").catch(err => console.log("Bloqueo de rotación ignorado"));
                 }
             } catch (error) {
-                console.log("Error en pantalla completa u orientación:", error);
+                console.log("Error al solicitar pantalla completa:", error);
             }
-
-            // 3. Arrancar el bucle principal
-            mainLoop();
         });
     </script>
 </body>
